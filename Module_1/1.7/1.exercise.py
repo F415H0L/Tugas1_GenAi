@@ -2,88 +2,75 @@ import time
 from functools import wraps
 
 
-# 1. Token cost calculator
-
 def token_cost(tokens: int, model: str) -> float:
-    """Return estimated cost for a model based on price per 1K tokens."""
-    rates = {
-        "gpt-4o-mini": 0.15,
-        "gpt-4o": 5.00,
-        "claude-3-haiku": 0.25,
-        "claude-3-sonnet": 3.00,
+    """Return the estimated cost based on the model price per 1K tokens."""
+    costs_per_1k = {
+        "gpt-4": 0.03,
+        "gpt-3.5-turbo": 0.0015,
+        "claude-3": 0.015,
     }
 
-    if model not in rates:
+    if model not in costs_per_1k:
         raise ValueError(f"Unknown model: {model}")
 
-    price_per_1k = rates[model]
-    return (tokens / 1000) * price_per_1k
+    return (tokens / 1000) * costs_per_1k[model]
 
 
-# 2. Retry decorator
+def retry(n: int, delay: float):
+    """Retry a function up to n times after an exception."""
+    if n < 0:
+        raise ValueError("n must be non-negative")
 
-def retry(max_retries: int = 3, delay: float = 0.5, verbose: bool = False):
-    def decorator(func):
-        @wraps(func)
+    def decorator(function):
+        @wraps(function)
         def wrapper(*args, **kwargs):
-            last_error = None
-            for attempt in range(1, max_retries + 1):
+            for attempt in range(n + 1):
                 try:
-                    return func(*args, **kwargs)
-                except Exception as exc:
-                    last_error = exc
-                    if attempt == max_retries:
+                    return function(*args, **kwargs)
+                except Exception:
+                    if attempt == n:
                         raise
-                    if verbose:
-                        print(f"Attempt {attempt} failed: {exc}. Retrying in {delay}s...")
                     time.sleep(delay)
-            raise last_error
 
         return wrapper
 
     return decorator
 
 
-counter = 0
+attempts = 0
 
 
-@retry(max_retries=3, delay=0.1, verbose=False)
-def flaky_function():
-    global counter
-    counter += 1
-    if counter < 3:
-        raise ValueError("Temporary failure")
-    return "Success after retries"
+@retry(n=2, delay=0.01)
+def fails_twice():
+    """Fail twice, then return successfully."""
+    global attempts
+    attempts += 1
+    if attempts <= 2:
+        raise RuntimeError("temporary failure")
+    return "succeeded"
 
-
-# 3. Temperature label
 
 def temperature_label(t: float) -> str:
-    """Map a temperature value to a descriptive label."""
+    """Map a temperature from 0.0 to 1.0 to one of three labels."""
     if not 0.0 <= t <= 1.0:
-        raise ValueError("Temperature must be between 0.0 and 1.0")
-
-    if 0.0 <= t < 0.3:
+        raise ValueError("temperature must be between 0.0 and 1.0")
+    if t < 0.3:
         return "precise"
-    if 0.3 <= t < 0.7:
+    if t < 0.7:
         return "balanced"
     return "creative"
 
 
-# 4. Parse token count and cost from a string
-
-def parse_token_info(text: str):
-    """Extract token count and cost from a string without regex."""
-    token_part = text.split("tokens")[0].strip()
-    cost_part = text.split("USD")[0].split(",")[-1].strip()
-
-    token_count = int(token_part)
-    cost_value = float(cost_part)
-    return token_count, cost_value
+def parse_token_cost(text: str) -> tuple[int, float]:
+    """Extract token count and cost using string methods only."""
+    token_part, cost_part = text.split(",", 1)
+    tokens = int(token_part.strip().split()[0])
+    cost = float(cost_part.strip().split()[0])
+    return tokens, cost
 
 
-# Demo runs
-print("Task 1:", token_cost(1500, "gpt-4o-mini"))
-print("Task 2:", flaky_function())
-print("Task 3:", temperature_label(0.5))
-print("Task 4:", parse_token_info("128000 tokens, 0.005 USD per 1K"))
+if __name__ == "__main__":
+    print(f"1. Token cost: {token_cost(1500, 'gpt-4')}")
+    print(f"2. Retry result: {fails_twice()}")
+    print(f"3. Temperature label: {temperature_label(0.5)}")
+    print(f"4. Parsed token info: {parse_token_cost('128000 tokens, 0.005 USD per 1K')}")
